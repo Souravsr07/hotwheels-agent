@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+config.json
+state.json
+agent.log
+api_hits.log
+debug/
