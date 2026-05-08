@@ -8,22 +8,21 @@ if (-not (Test-Path $launcher)) {
     throw "Could not find $launcher"
 }
 
-$action = New-ScheduledTaskAction -Execute $launcher -WorkingDirectory $projectDir
-$trigger = New-ScheduledTaskTrigger -AtLogOn
-$settings = New-ScheduledTaskSettingsSet `
-    -AllowStartIfOnBatteries `
-    -DontStopIfGoingOnBatteries `
-    -MultipleInstances IgnoreNew `
-    -RestartCount 3 `
-    -RestartInterval (New-TimeSpan -Minutes 5)
+$taskCommand = "cmd.exe /c cd /d `"$projectDir`" && `"$launcher`""
+schtasks /Create /F /TN $taskName /SC ONLOGON /TR $taskCommand /RL LIMITED | Out-Null
 
-Register-ScheduledTask `
-    -TaskName $taskName `
-    -Action $action `
-    -Trigger $trigger `
-    -Settings $settings `
-    -Description "Runs the Hot Wheels Blinkit collector agent at Windows login." `
-    -Force | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    $startupDir = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Startup"
+    $startupLauncher = Join-Path $startupDir "HotWheelsBlinkitAgent.bat"
+    Set-Content -Path $startupLauncher -Encoding ASCII -Value @(
+        "@echo off",
+        "cd /d `"$projectDir`"",
+        "`"$launcher`""
+    )
+    Write-Host "Task Scheduler was not available. Installed Startup launcher instead:"
+    Write-Host $startupLauncher
+    exit 0
+}
 
 Write-Host "Installed scheduled task: $taskName"
 Write-Host "It will run $launcher at Windows login."
