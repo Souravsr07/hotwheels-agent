@@ -209,6 +209,10 @@ async def check_all_locations(
         logger.info("Checking %s...", location["name"])
         try:
             raw_products = await scrape_location(location, config)
+            if not config.get("scraper", {}).get("include_unavailable", False):
+                raw_products = [
+                    product for product in raw_products if product.get("available", True)
+                ]
             classified = classify_products(raw_products, config)
             all_products.extend(classified)
             picks = priority_products(classified, config)

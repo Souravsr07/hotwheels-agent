@@ -236,7 +236,8 @@
       "/v2/search/deeplink"
     ],
     "result_scrolls": 3,
-    "scroll_pause_ms": 900
+    "scroll_pause_ms": 900,
+    "include_unavailable": false
   },
   "alert_cooldown_minutes": 60,
   "priority_alert_cooldown_minutes": 720,

@@ -122,7 +122,7 @@ async def _run_scraper(location: dict, timeout: int, scraper_cfg: dict) -> Optio
                     if "json" not in content_type:
                         return
                     data = await response.json()
-                    products = _parse_api_response(data, location)
+                    products = _parse_api_response(data, location, scraper_cfg)
                     if products:
                         intercepted_products.extend(products)
                 except Exception as exc:
@@ -363,8 +363,9 @@ async def _check_availability(element) -> bool:
         return True
 
 
-def _parse_api_response(data: dict, location: dict) -> list[dict]:
+def _parse_api_response(data: dict, location: dict, scraper_cfg: dict | None = None) -> list[dict]:
     products = []
+    include_unavailable = bool((scraper_cfg or {}).get("include_unavailable", False))
 
     def walk(obj):
         if isinstance(obj, dict):
@@ -373,24 +374,21 @@ def _parse_api_response(data: dict, location: dict) -> list[dict]:
                 obj,
                 ["price", "selling_price", "discounted_price", "mrp", "unit_price"],
             )
-            available = _first_present(
-                obj,
-                ["is_available", "available", "in_stock", "inventory", "is_inventory_available"],
-                default=True,
-            )
+            available = _product_available(obj)
             url = _first_present(obj, ["url", "product_url", "deeplink"], default="")
 
             if isinstance(name, str) and "hot wheels" in name.lower():
-                products.append(
-                    {
-                        "name": _compact_text(name),
-                        "price": _clean_price(str(price) if price else ""),
-                        "available": _coerce_available(available),
-                        "location": location["name"],
-                        "source": "api",
-                        "url": url if isinstance(url, str) else "",
-                    }
-                )
+                if available or include_unavailable:
+                    products.append(
+                        {
+                            "name": _compact_text(name),
+                            "price": _clean_price(str(price) if price else ""),
+                            "available": available,
+                            "location": location["name"],
+                            "source": "api",
+                            "url": url if isinstance(url, str) else "",
+                        }
+                    )
 
             for value in obj.values():
                 walk(value)
@@ -436,12 +434,87 @@ def _coerce_available(value) -> bool:
         return value > 0
     if isinstance(value, str):
         normalized = value.strip().lower()
-        if normalized in {"false", "0", "no", "n", "out_of_stock", "sold_out", "unavailable"}:
+        normalized_words = re.sub(r"[^a-z0-9]+", " ", normalized).strip()
+        if normalized in {"false", "0", "no", "n"}:
             return False
-        if any(term in normalized for term in ["out of stock", "sold out", "unavailable"]):
+        if normalized_words in {"false", "0", "no", "n", "out of stock", "sold out", "unavailable"}:
             return False
+        if any(
+            term in normalized_words
+            for term in [
+                "out of stock",
+                "sold out",
+                "unavailable",
+                "notify me",
+                "currently unavailable",
+                "coming soon",
+            ]
+        ):
+            return False
+        if any(
+            term in normalized_words
+            for term in ["in stock", "available", "add", "add to cart"]
+        ):
+            return True
         return True
+    if isinstance(value, dict):
+        return _product_available(value)
+    if isinstance(value, list):
+        values = [_coerce_available(item) for item in value]
+        return any(values) if values else True
     return bool(value)
+
+
+def _product_available(product_obj: dict) -> bool:
+    signals = list(_availability_signals(product_obj))
+    if not signals:
+        return True
+
+    saw_positive = False
+    for value in signals:
+        available = _coerce_available(value)
+        if available is False:
+            return False
+        if available is True:
+            saw_positive = True
+    return saw_positive or True
+
+
+def _availability_signals(obj, depth: int = 0):
+    if depth > 4:
+        return
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            key_text = str(key).lower()
+            if _is_availability_key(key_text):
+                yield value
+            if isinstance(value, (dict, list)):
+                yield from _availability_signals(value, depth + 1)
+    elif isinstance(obj, list):
+        for item in obj:
+            if isinstance(item, (dict, list)):
+                yield from _availability_signals(item, depth + 1)
+
+
+def _is_availability_key(key: str) -> bool:
+    return any(
+        marker in key
+        for marker in [
+            "available",
+            "availability",
+            "in_stock",
+            "stock",
+            "inventory",
+            "quantity",
+            "qty",
+            "sold",
+            "cta",
+            "button",
+            "cart",
+            "status",
+            "state",
+        ]
+    )
 
 
 def _log_api_urls(location: dict, urls: set[str]) -> None:
