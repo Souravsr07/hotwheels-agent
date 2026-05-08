@@ -84,7 +84,7 @@ GitHub Actions option:
 
 - Push this repo to GitHub.
 - Add repository secrets: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, and optionally `ANTHROPIC_API_KEY`.
-- The included workflow runs every 30 minutes and caches `state.json` so alert cooldowns survive between runs.
+- The included workflow runs hourly from 08:00 to 00:00 Asia/Kolkata, forces a Telegram digest each run, and caches `state.json` so alert cooldowns survive between runs.
 
 Useful options:
 

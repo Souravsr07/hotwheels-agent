@@ -200,11 +200,11 @@
   "schedule": {
     "mode": "interval",
     "interval_hours": 1,
-    "interval_minutes": 45,
+    "interval_minutes": 60,
     "run_on_start": true,
     "active_hours": {
       "enabled": true,
-      "start": "06:00",
+      "start": "08:00",
       "end": "00:00"
     },
     "custom_times": [
@@ -241,6 +241,6 @@
   },
   "alert_cooldown_minutes": 60,
   "priority_alert_cooldown_minutes": 720,
-  "stock_digest_interval_minutes": 240,
+  "stock_digest_interval_minutes": 60,
   "heartbeat_every_runs": 6
 }

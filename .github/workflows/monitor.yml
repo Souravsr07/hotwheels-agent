@@ -2,7 +2,8 @@ name: Hot Wheels Blinkit Monitor
 
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    # 08:00-00:00 Asia/Kolkata, hourly. GitHub cron is UTC.
+    - cron: "30 2-18 * * *"
   workflow_dispatch:
     inputs:
       force_digest:
@@ -55,7 +56,7 @@ jobs:
 
       - name: Run scheduled collector check
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.force_digest != 'true' }}
-        run: python main.py --once
+        run: python main.py --once --force-digest --ignore-active-hours
 
       - name: Run manual collector check with digest
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.force_digest == 'true' }}
