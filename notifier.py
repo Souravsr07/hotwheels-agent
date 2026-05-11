@@ -6,7 +6,6 @@ import httpx
 logger = logging.getLogger(__name__)
 
 TELEGRAM_MESSAGE_API = "https://api.telegram.org/bot{token}/sendMessage"
-TELEGRAM_PHOTO_API = "https://api.telegram.org/bot{token}/sendPhoto"
 PLACEHOLDER_TOKENS = {"", "YOUR_BOT_TOKEN_HERE"}
 PLACEHOLDER_CHAT_IDS = {"", "YOUR_CHAT_ID_HERE"}
 MAX_TELEGRAM_CHARS = 3800
@@ -24,22 +23,9 @@ async def send_curated_priority_alert(
 
     counts = report.get("counts", {})
     alert_cfg = (config or {}).get("telegram_alerts", {})
-    max_images = int(alert_cfg.get("max_priority_images", 1))
-    photo_groups = [group for group in groups if group.get("image_url")][:max_images]
-    photo_group_ids = {id(group) for group in photo_groups}
-
-    for index, group in enumerate(photo_groups, start=1):
-        caption = "\n".join(_format_group(group, index=index, compact=True))
-        await _send_telegram_photo(
-            telegram_cfg,
-            group.get("image_url", ""),
-            caption,
-            reply_markup=_button_markup(_group_url(group)),
-        )
-
-    remaining_groups = [
-        group for group in groups if id(group) not in photo_group_ids
-    ]
+    max_items = int(alert_cfg.get("max_priority_alert_items", 5))
+    shown_groups = groups[:max_items]
+    top_group = shown_groups[0]
 
     lines = [
         "<b>HOT WHEELS ALERT | Pune Blinkit</b>",
@@ -53,11 +39,11 @@ async def send_curated_priority_alert(
         lines.append("<b>Quiet-hours grail override:</b> sending only urgent grail-level finds now.")
         lines.append("")
 
-    for index, group in enumerate(remaining_groups, start=len(photo_groups) + 1):
+    for index, group in enumerate(shown_groups, start=1):
         lines.extend(_format_group(group, index=index))
 
-    if photo_groups and not remaining_groups:
-        lines.append("Top pick sent above with image preview.")
+    if len(groups) > len(shown_groups):
+        lines.append(f"...and {len(groups) - len(shown_groups)} more collector pick(s).")
 
     hidden = counts.get("hidden_castings", 0)
     ignored = counts.get("ignored_listings", 0)
@@ -65,12 +51,11 @@ async def send_curated_priority_alert(
         lines.append("")
         lines.append(f"Not in alert: {hidden} lower-priority, {ignored} skipped/noise.")
 
-    lines.append("")
-    lines.append(f"<a href=\"{BLINKIT_SEARCH_URL}\">Open Blinkit Hot Wheels search</a>")
     await _send_telegram(
         telegram_cfg,
         "\n".join(lines),
-        reply_markup=_button_markup(BLINKIT_SEARCH_URL, text="Open Blinkit search"),
+        reply_markup=_button_markup(_group_url(top_group), text="Open top pick"),
+        link_preview_url=_preview_url(top_group),
     )
     logger.info("Telegram curated priority alert handled for %s groups", len(groups))
 
@@ -87,24 +72,11 @@ async def send_curated_stock_digest(
         return
 
     alert_cfg = (config or {}).get("telegram_alerts", {})
-    max_images = int(alert_cfg.get("max_digest_images", alert_cfg.get("max_priority_images", 1)))
-    digest_photo_groups = [
-        group for group in priority_groups + digest_groups if group.get("image_url")
-    ][:max_images]
-
-    for index, group in enumerate(digest_photo_groups, start=1):
-        caption = "\n".join(
-            [
-                "<b>Digest Preview</b>",
-                *_format_group(group, index=index, compact=True),
-            ]
-        )
-        await _send_telegram_photo(
-            telegram_cfg,
-            group.get("image_url", ""),
-            caption,
-            reply_markup=_button_markup(_group_url(group)),
-        )
+    max_priority = int(alert_cfg.get("max_digest_priority_items", 3))
+    max_watchlist = int(alert_cfg.get("max_digest_watchlist_items", 3))
+    shown_priority = priority_groups[:max_priority]
+    shown_digest = digest_groups[:max_watchlist]
+    top_group = _first_group_with_image(shown_priority + shown_digest) or (shown_priority + shown_digest)[0]
 
     lines = [
         "<b>Hot Wheels Digest | Pune Blinkit</b>",
@@ -114,28 +86,31 @@ async def send_curated_stock_digest(
         "",
     ]
 
-    if priority_groups:
-        lines.append("<b>Open Blinkit For These</b>")
-        for index, group in enumerate(priority_groups, start=1):
+    if shown_priority:
+        lines.append("<b>Top Finds</b>")
+        for index, group in enumerate(shown_priority, start=1):
             lines.extend(_format_group(group, index=index, compact=True))
+        if len(priority_groups) > len(shown_priority):
+            lines.append(f"+{len(priority_groups) - len(shown_priority)} more collector-grade pick(s)")
         lines.append("")
 
-    if digest_groups:
-        lines.append("<b>Watchlist / Nice-To-Know</b>")
-        for index, group in enumerate(digest_groups, start=1):
+    if shown_digest:
+        lines.append("<b>Watchlist</b>")
+        for index, group in enumerate(shown_digest, start=1):
             lines.extend(_format_group(group, index=index, compact=True))
+        if len(digest_groups) > len(shown_digest):
+            lines.append(f"+{len(digest_groups) - len(shown_digest)} more watchlist item(s)")
         lines.append("")
 
     lines.append(
         f"Filtered out: {counts.get('common_listings', 0)} common, "
         f"{counts.get('ignored_listings', 0)} fantasy/generic/playset."
     )
-    lines.append(f"<a href=\"{BLINKIT_SEARCH_URL}\">Open Blinkit Hot Wheels search</a>")
-
     await _send_telegram(
         telegram_cfg,
         "\n".join(lines),
-        reply_markup=_button_markup(BLINKIT_SEARCH_URL, text="Open Blinkit search"),
+        reply_markup=_button_markup(_group_url(top_group), text="Open top pick"),
+        link_preview_url=_preview_url(top_group),
     )
     logger.info("Telegram curated stock digest handled")
 
@@ -238,14 +213,21 @@ async def _send_telegram(
     telegram_cfg: dict,
     text: str,
     reply_markup: dict | None = None,
+    link_preview_url: str | None = None,
 ) -> None:
-    await _send_telegram_message(telegram_cfg, text, reply_markup=reply_markup)
+    await _send_telegram_message(
+        telegram_cfg,
+        text,
+        reply_markup=reply_markup,
+        link_preview_url=link_preview_url,
+    )
 
 
 async def _send_telegram_message(
     telegram_cfg: dict,
     text: str,
     reply_markup: dict | None = None,
+    link_preview_url: str | None = None,
 ) -> None:
     token = telegram_cfg.get("bot_token", "")
     chat_id = telegram_cfg.get("chat_id", "")
@@ -261,8 +243,14 @@ async def _send_telegram_message(
                     "chat_id": chat_id,
                     "text": chunk,
                     "parse_mode": "HTML",
-                    "disable_web_page_preview": True,
+                    "disable_web_page_preview": link_preview_url is None,
                 }
+                if link_preview_url:
+                    payload["link_preview_options"] = {
+                        "url": link_preview_url,
+                        "prefer_small_media": True,
+                        "show_above_text": True,
+                    }
                 if reply_markup:
                     payload["reply_markup"] = reply_markup
                 response = await client.post(
@@ -272,40 +260,6 @@ async def _send_telegram_message(
                 response.raise_for_status()
     except Exception as exc:
         logger.error("Telegram send failed: %s", exc)
-
-
-async def _send_telegram_photo(
-    telegram_cfg: dict,
-    photo_url: str,
-    caption: str,
-    reply_markup: dict | None = None,
-) -> None:
-    token = telegram_cfg.get("bot_token", "")
-    chat_id = telegram_cfg.get("chat_id", "")
-    if token in PLACEHOLDER_TOKENS or chat_id in PLACEHOLDER_CHAT_IDS:
-        logger.warning("Telegram is not configured; photo alert was not sent:\n%s", caption)
-        return
-    if not photo_url:
-        return
-
-    payload = {
-        "chat_id": chat_id,
-        "photo": photo_url,
-        "caption": caption[:1024],
-        "parse_mode": "HTML",
-    }
-    if reply_markup:
-        payload["reply_markup"] = reply_markup
-
-    url = TELEGRAM_PHOTO_API.format(token=token)
-    try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            response = await client.post(url, json=payload)
-            response.raise_for_status()
-            logger.info("Telegram photo alert sent")
-    except Exception as exc:
-        logger.warning("Telegram photo send failed; falling back to text: %s", exc)
-        await _send_telegram_message(telegram_cfg, caption, reply_markup=reply_markup)
 
 
 def _format_product(
@@ -361,6 +315,21 @@ def _group_url(group: dict) -> str:
         if isinstance(product_url, str) and product_url.startswith(("http://", "https://")):
             return product_url
     return BLINKIT_SEARCH_URL
+
+
+def _preview_url(group: dict) -> str | None:
+    image_url = group.get("image_url", "")
+    if isinstance(image_url, str) and image_url.startswith(("http://", "https://")):
+        return image_url
+    for product in group.get("products", []):
+        product_image = product.get("image_url", "")
+        if isinstance(product_image, str) and product_image.startswith(("http://", "https://")):
+            return product_image
+    return None
+
+
+def _first_group_with_image(groups: list[dict]) -> dict | None:
+    return next((group for group in groups if _preview_url(group)), None)
 
 
 def _button_markup(url: str, text: str = "Open on Blinkit") -> dict:

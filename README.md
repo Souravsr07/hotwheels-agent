@@ -30,7 +30,7 @@ Edit `config.json`. For GitHub later, keep secrets out of committed files: `conf
 - `scraper.result_scrolls`: scroll passes after page load so Blinkit exposes more result batches.
 - `telegram.bot_token`: token from BotFather.
 - `telegram.chat_id`: your Telegram chat id.
-- `telegram_alerts.max_priority_images`: how many priority-alert product photos to send. Default is 1 to avoid clutter.
+- `telegram_alerts`: keeps Telegram compact with one image preview, one action button, and short top-pick/watchlist sections.
 - `quiet_hours`: optional notification quiet window. Grails can still override it.
 - `schedule.interval_minutes`: default is 60.
 - `schedule.active_hours`: default is 06:00 to 00:00 Asia/Kolkata.
