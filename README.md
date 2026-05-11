@@ -63,7 +63,9 @@ run_agent.bat
 
 `manual_trial.py` / `trial_run.bat` runs one check cycle, forces a stock digest, sends Telegram, and exits.
 
-`main.py --once --ignore-active-hours` / `run_once.bat` runs one normal check cycle and exits.
+`main.py --once --ignore-active-hours` / `run_once.bat` runs one normal check cycle and exits, ignoring the active-hours window.
+
+`main.py --once` / `run_hourly.bat` runs one scheduled check cycle and exits, respecting the active-hours window in `config.json`.
 
 `main.py` / `run_agent.bat` starts the scheduler and keeps running.
 
@@ -78,7 +80,7 @@ cd C:\Users\soura\Documents\hotwheels_agent
 powershell -ExecutionPolicy Bypass -File .\install_windows_task.ps1
 ```
 
-This installs a Task Scheduler job that starts `run_agent.bat` when you log in.
+This installs a Task Scheduler job that runs `run_hourly.bat` once every hour. Each run checks all configured locations, sends alerts/digests if needed, updates `state.json`, and exits. The `schedule.active_hours` window in `config.json` still decides whether a given hourly run should actually scan or skip.
 
 GitHub Actions option:
 

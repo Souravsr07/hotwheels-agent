@@ -6,4 +6,5 @@ config.json
 state.json
 agent.log
 api_hits.log
+run.lock
 debug/

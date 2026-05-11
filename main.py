@@ -40,7 +40,9 @@ from notifier import (
 from scraper import scrape_location
 
 STATE_PATH = BASE_DIR / "state.json"
+LOCK_PATH = BASE_DIR / "run.lock"
 TIMEZONE = ZoneInfo("Asia/Kolkata")
+LOCK_STALE_SECONDS = 3 * 60 * 60
 
 logging.basicConfig(
     level=logging.INFO,
@@ -122,6 +124,39 @@ def _load_state() -> dict:
 def _save_state(state: dict) -> None:
     with open(STATE_PATH, "w", encoding="utf-8") as file:
         json.dump(state, file, indent=2, sort_keys=True)
+
+
+def _acquire_run_lock() -> bool:
+    try:
+        fd = os.open(LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        try:
+            age = time.time() - LOCK_PATH.stat().st_mtime
+        except OSError:
+            age = 0
+        if age > LOCK_STALE_SECONDS:
+            logger.warning("Removing stale run lock older than %s seconds.", LOCK_STALE_SECONDS)
+            try:
+                LOCK_PATH.unlink()
+            except OSError as exc:
+                logger.warning("Could not remove stale run lock: %s", exc)
+                return False
+            return _acquire_run_lock()
+        logger.warning("Another collector run appears to be active; skipping this launch.")
+        return False
+
+    with os.fdopen(fd, "w", encoding="utf-8") as file:
+        file.write(f"pid={os.getpid()}\nstarted_at={datetime.now(TIMEZONE).isoformat()}\n")
+    return True
+
+
+def _release_run_lock() -> None:
+    try:
+        LOCK_PATH.unlink()
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        logger.warning("Could not remove run lock: %s", exc)
 
 
 def _alert_key(product: dict) -> str:
@@ -367,13 +402,19 @@ def parse_args() -> argparse.Namespace:
 
 async def async_main() -> None:
     args = parse_args()
-    if args.once:
-        await check_all_locations(
-            force_stock_digest=args.force_digest,
-            ignore_active_hours=args.ignore_active_hours,
-        )
-    else:
-        await run_scheduler(args)
+    if not _acquire_run_lock():
+        return
+
+    try:
+        if args.once:
+            await check_all_locations(
+                force_stock_digest=args.force_digest,
+                ignore_active_hours=args.ignore_active_hours,
+            )
+        else:
+            await run_scheduler(args)
+    finally:
+        _release_run_lock()
 
 
 if __name__ == "__main__":
