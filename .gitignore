@@ -3,6 +3,7 @@ __pycache__/
 .venv/
 .env
 config.json
+collection.json
 state.json
 agent.log
 api_hits.log

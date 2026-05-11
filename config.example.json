@@ -219,6 +219,10 @@
     "bot_token": "YOUR_BOT_TOKEN_HERE",
     "chat_id": "YOUR_CHAT_ID_HERE"
   },
+  "telegram_alerts": {
+    "max_priority_images": 1,
+    "max_digest_images": 1
+  },
   "anthropic_api_key": "YOUR_ANTHROPIC_KEY_HERE",
   "scraper": {
     "headless": true,
@@ -242,5 +246,19 @@
   "alert_cooldown_minutes": 60,
   "priority_alert_cooldown_minutes": 720,
   "stock_digest_interval_minutes": 60,
+  "quiet_hours": {
+    "enabled": false,
+    "start": "23:00",
+    "end": "07:00",
+    "grail_override": true,
+    "grail_keywords": [
+      "Super Treasure Hunt",
+      "STH",
+      "RLC",
+      "ZAMAC",
+      "Convention Exclusive",
+      "Chase"
+    ]
+  },
   "heartbeat_every_runs": 6
 }
