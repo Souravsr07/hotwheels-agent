@@ -44,6 +44,8 @@ def _group_products(products: list[dict]) -> list[dict]:
         best = sorted(items, key=_product_sort_key)[0]
         locations = sorted({item.get("location", "") for item in items if item.get("location")})
         prices = sorted({str(item.get("price", "N/A")) for item in items if item.get("price")})
+        image_url = next((item.get("image_url", "") for item in items if item.get("image_url")), "")
+        url = next((item.get("url", "") for item in items if item.get("url")), "")
         groups.append(
             {
                 "name": _display_name(best.get("name", "")),
@@ -54,6 +56,8 @@ def _group_products(products: list[dict]) -> list[dict]:
                 "terms": best.get("collector_terms", []),
                 "locations": locations,
                 "prices": prices or ["N/A"],
+                "url": url,
+                "image_url": image_url,
                 "count": len(items),
                 "products": items,
             }

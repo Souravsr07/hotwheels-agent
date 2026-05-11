@@ -29,6 +29,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
+from collection import apply_collection_preferences, load_collection
 from collector import classify_products, priority_products
 from curator import build_curated_report
 from notifier import (
@@ -109,16 +110,17 @@ def _is_placeholder(value: str | None, placeholder: str) -> bool:
 
 def _load_state() -> dict:
     if not STATE_PATH.exists():
-        return {"alerts": {}, "last_stock_digest_at": 0}
+        return {"alerts": {}, "last_stock_digest_at": 0, "queued_priority": {}}
     try:
         with open(STATE_PATH, encoding="utf-8-sig") as file:
             state = json.load(file)
         state.setdefault("alerts", {})
         state.setdefault("last_stock_digest_at", 0)
+        state.setdefault("queued_priority", {})
         return state
     except Exception as exc:
         logger.warning("Could not read state.json, starting fresh: %s", exc)
-        return {"alerts": {}, "last_stock_digest_at": 0}
+        return {"alerts": {}, "last_stock_digest_at": 0, "queued_priority": {}}
 
 
 def _save_state(state: dict) -> None:
@@ -217,6 +219,56 @@ def _parse_hhmm(value: str) -> int:
     return hour * 60 + minute
 
 
+def _within_quiet_hours(config: dict, now: datetime | None = None) -> bool:
+    quiet_hours = config.get("quiet_hours", {})
+    if not quiet_hours.get("enabled", False):
+        return False
+
+    now = now or datetime.now(TIMEZONE)
+    current_minutes = now.hour * 60 + now.minute
+    start = _parse_hhmm(quiet_hours.get("start", "23:00"))
+    end = _parse_hhmm(quiet_hours.get("end", "07:00"))
+
+    if start < end:
+        return start <= current_minutes < end
+    if start > end:
+        return current_minutes >= start or current_minutes < end
+    return False
+
+
+def _is_grail_product(product: dict, config: dict) -> bool:
+    if product.get("collector_tier") == "grail":
+        return True
+    name = product.get("name", "").lower()
+    grail_keywords = config.get("quiet_hours", {}).get("grail_keywords", [])
+    return any(str(keyword).lower() in name for keyword in grail_keywords)
+
+
+def _queue_priority_products(products: list[dict], state: dict) -> None:
+    queued = state.setdefault("queued_priority", {})
+    now = time.time()
+    for product in products:
+        key = _alert_key(product)
+        queued[key] = {"queued_at": now, "product": product}
+
+
+def _pop_queued_priority_products(state: dict) -> list[dict]:
+    queued = state.get("queued_priority", {})
+    if not queued:
+        return []
+    products = [item.get("product", {}) for item in queued.values()]
+    state["queued_priority"] = {}
+    return [product for product in products if product.get("name")]
+
+
+def _merge_products_by_alert_key(*product_lists: list[dict]) -> list[dict]:
+    merged = {}
+    for products in product_lists:
+        for product in products:
+            merged[_alert_key(product)] = product
+    return list(merged.values())
+
+
 async def check_all_locations(
     force_stock_digest: bool = False,
     ignore_active_hours: bool = False,
@@ -230,6 +282,7 @@ async def check_all_locations(
         return {"checked": False, "priority_count": 0, "product_count": 0}
 
     state = _load_state()
+    collection = load_collection()
     locations = config.get("locations", [])
     telegram_cfg = config.get("telegram", {})
     priority_cooldown = int(config.get("priority_alert_cooldown_minutes", 720))
@@ -249,6 +302,7 @@ async def check_all_locations(
                     product for product in raw_products if product.get("available", True)
                 ]
             classified = classify_products(raw_products, config)
+            classified = apply_collection_preferences(classified, collection)
             all_products.extend(classified)
             picks = priority_products(classified, config)
 
@@ -271,9 +325,34 @@ async def check_all_locations(
         if not _is_already_alerted(product, state, priority_cooldown)
     ]
 
+    quiet_now = _within_quiet_hours(config)
+    queued_now: list[dict] = []
+    if quiet_now:
+        quiet_cfg = config.get("quiet_hours", {})
+        grail_override = bool(quiet_cfg.get("grail_override", True))
+        send_now = [
+            product for product in new_priority if grail_override and _is_grail_product(product, config)
+        ]
+        queued_now = [product for product in new_priority if product not in send_now]
+        if queued_now:
+            _queue_priority_products(queued_now, state)
+            logger.info("Queued %s priority product(s) for quiet-hours digest.", len(queued_now))
+        new_priority = send_now
+    else:
+        queued_products = [
+            product
+            for product in _pop_queued_priority_products(state)
+            if not _is_already_alerted(product, state, priority_cooldown)
+        ]
+        if queued_products:
+            logger.info("Releasing %s queued quiet-hours product(s).", len(queued_products))
+            new_priority = _merge_products_by_alert_key(queued_products, new_priority)
+
     if new_priority:
         priority_report = build_curated_report(new_priority, config)
-        await send_curated_priority_alert(priority_report, telegram_cfg)
+        if quiet_now:
+            priority_report["quiet_hours_grail_override"] = True
+        await send_curated_priority_alert(priority_report, telegram_cfg, config)
         alerted_products = _products_in_report(priority_report)
         _mark_alerted(alerted_products, state)
         state["quiet_runs"] = 0
@@ -286,10 +365,13 @@ async def check_all_locations(
         logger.info("No new collector-priority products this cycle.")
 
     digest_due = force_stock_digest or _stock_digest_due(config, state)
+    if quiet_now and digest_due:
+        digest_due = False
+        logger.info("Stock digest suppressed during quiet hours.")
     stock_digest_sent = False
     if digest_due and all_products:
         digest_report = build_curated_report(all_products, config)
-        await send_curated_stock_digest(digest_report, telegram_cfg)
+        await send_curated_stock_digest(digest_report, telegram_cfg, config)
         _mark_stock_digest_sent(state)
         stock_digest_sent = True
         logger.info("Stock digest sent for %s products", len(all_products))
@@ -308,6 +390,7 @@ async def check_all_locations(
         "checked": True,
         "priority_count": len(priority),
         "new_priority_count": len(new_priority),
+        "queued_priority_count": len(queued_now),
         "product_count": len(all_products),
         "stock_digest_sent": stock_digest_sent,
     }

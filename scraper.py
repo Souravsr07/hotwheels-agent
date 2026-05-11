@@ -3,6 +3,7 @@ import json
 import logging
 import random
 import re
+import unicodedata
 from pathlib import Path
 from typing import Optional
 
@@ -33,6 +34,12 @@ PRICE_SELECTORS = [
     ".product__price",
     "div[class*='Price']",
     "span[class*='price']",
+]
+
+IMAGE_SELECTORS = [
+    "img[data-test-id='product-image']",
+    "img[class*='Product']",
+    "img",
 ]
 
 USER_AGENTS = [
@@ -260,6 +267,7 @@ async def _scrape_dom(page, location: dict) -> list[dict]:
             price = await _extract_text(element, PRICE_SELECTORS)
             available = await _check_availability(element)
             url = await _extract_url(element)
+            image_url = await _extract_image_url(element)
 
             products.append(
                 {
@@ -269,6 +277,7 @@ async def _scrape_dom(page, location: dict) -> list[dict]:
                     "location": location["name"],
                     "source": "dom",
                     "url": url,
+                    "image_url": image_url,
                 }
             )
         except Exception as exc:
@@ -297,6 +306,7 @@ async def _scrape_text_fallback(page, location: dict) -> list[dict]:
                             "location": location["name"],
                             "source": "text_fallback",
                             "url": "",
+                            "image_url": "",
                         }
                     )
     except Exception as exc:
@@ -341,6 +351,26 @@ async def _extract_url(element) -> str:
     return ""
 
 
+async def _extract_image_url(element) -> str:
+    for selector in IMAGE_SELECTORS:
+        try:
+            image = element.locator(selector).first
+            if await image.count() <= 0:
+                continue
+            for attr in ["src", "data-src", "data-lazy-src"]:
+                value = await image.get_attribute(attr)
+                if value:
+                    return _absolute_blinkit_url(value)
+            srcset = await image.get_attribute("srcset")
+            if srcset:
+                first = srcset.split(",", 1)[0].strip().split(" ", 1)[0]
+                if first:
+                    return _absolute_blinkit_url(first)
+        except Exception:
+            continue
+    return ""
+
+
 async def _check_availability(element) -> bool:
     try:
         text = (await element.inner_text(timeout=1000)).lower()
@@ -369,16 +399,21 @@ def _parse_api_response(data: dict, location: dict, scraper_cfg: dict | None = N
 
     def walk(obj):
         if isinstance(obj, dict):
-            name = _first_present(obj, ["name", "product_name", "display_name", "title"])
-            price = _first_present(
+            name = _first_text_present(obj, ["name", "product_name", "display_name", "title"])
+            price = _first_text_present(
                 obj,
                 ["price", "selling_price", "discounted_price", "mrp", "unit_price"],
             )
             available = _product_available(obj)
             url = _first_present(obj, ["url", "product_url", "deeplink"], default="")
+            image_url = _image_url_from_obj(obj)
+            product_id = _first_present(obj, ["product_id", "productId", "id"], default="")
 
-            if isinstance(name, str) and "hot wheels" in name.lower():
+            if isinstance(name, str) and _is_hotwheels_product_name(name):
                 if available or include_unavailable:
+                    product_url = _absolute_blinkit_url(url) if isinstance(url, str) else ""
+                    if not product_url and product_id:
+                        product_url = _blinkit_product_url(name, product_id)
                     products.append(
                         {
                             "name": _compact_text(name),
@@ -386,7 +421,9 @@ def _parse_api_response(data: dict, location: dict, scraper_cfg: dict | None = N
                             "available": available,
                             "location": location["name"],
                             "source": "api",
-                            "url": url if isinstance(url, str) else "",
+                            "url": product_url,
+                            "image_url": image_url,
+                            "product_id": str(product_id) if product_id else "",
                         }
                     )
 
@@ -405,6 +442,98 @@ def _first_present(obj: dict, keys: list[str], default=None):
         if key in obj and obj[key] not in (None, ""):
             return obj[key]
     return default
+
+
+def _is_hotwheels_product_name(name: str) -> bool:
+    lowered = name.lower()
+    if "hot wheels" not in lowered:
+        return False
+    if lowered.startswith("showing results for"):
+        return False
+    if lowered.startswith("search instead for"):
+        return False
+    return True
+
+
+def _first_text_present(obj: dict, keys: list[str], default=None):
+    for key in keys:
+        if key not in obj or obj[key] in (None, ""):
+            continue
+        value = obj[key]
+        if isinstance(value, str):
+            return value
+        if isinstance(value, (int, float)):
+            return str(value)
+        if isinstance(value, dict):
+            text = value.get("text")
+            if isinstance(text, str) and text:
+                return text
+    return default
+
+
+def _image_url_from_obj(obj: dict) -> str:
+    direct = _first_present(
+        obj,
+        [
+            "image_url",
+            "imageUrl",
+            "image",
+            "imageUrlLarge",
+            "thumbnail",
+            "thumbnail_url",
+            "media_url",
+            "product_image",
+        ],
+        default="",
+    )
+    found = _first_image_url(direct)
+    if found:
+        return found
+
+    return _first_image_url(obj)
+
+
+def _first_image_url(value) -> str:
+    if isinstance(value, str):
+        if value.startswith("//"):
+            return f"https:{value}"
+        if value.startswith(("http://", "https://", "/")):
+            return _absolute_blinkit_url(value)
+        return ""
+    if isinstance(value, dict):
+        for item in value.values():
+            found = _first_image_url(item)
+            if found:
+                return found
+    if isinstance(value, list):
+        for item in value:
+            found = _first_image_url(item)
+            if found:
+                return found
+    return ""
+
+
+def _absolute_blinkit_url(value: str) -> str:
+    if not value:
+        return ""
+    if value.startswith("//"):
+        return f"https:{value}"
+    if value.startswith("/"):
+        return f"https://blinkit.com{value}"
+    return value
+
+
+def _blinkit_product_url(name: str, product_id) -> str:
+    slug = _slugify(name)
+    return f"https://blinkit.com/prn/{slug}/prid/{product_id}"
+
+
+def _slugify(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", value)
+    normalized = normalized.encode("ascii", "ignore").decode("ascii")
+    normalized = normalized.lower().replace("&", " and ")
+    normalized = re.sub(r"[^a-z0-9]+", "-", normalized)
+    return normalized.strip("-") or "hot-wheels"
 
 
 def _is_candidate_api_url(url: str, scraper_cfg: dict) -> bool:
@@ -497,6 +626,8 @@ def _availability_signals(obj, depth: int = 0):
 
 
 def _is_availability_key(key: str) -> bool:
+    if "unavailable_quantity" in key:
+        return False
     return any(
         marker in key
         for marker in [
@@ -551,8 +682,14 @@ def _dedupe_products(products: list[dict]) -> list[dict]:
             product.get("name", "").lower(),
             str(product.get("price", "")).lower(),
         )
-        deduped[key] = product
+        existing = deduped.get(key)
+        if not existing or _richness_score(product) >= _richness_score(existing):
+            deduped[key] = product
     return list(deduped.values())
+
+
+def _richness_score(product: dict) -> int:
+    return int(bool(product.get("image_url"))) + int(bool(product.get("url")))
 
 
 def _compact_text(raw: str) -> str:

@@ -30,9 +30,19 @@ Edit `config.json`. For GitHub later, keep secrets out of committed files: `conf
 - `scraper.result_scrolls`: scroll passes after page load so Blinkit exposes more result batches.
 - `telegram.bot_token`: token from BotFather.
 - `telegram.chat_id`: your Telegram chat id.
-- `schedule.interval_minutes`: default is 45.
+- `telegram_alerts.max_priority_images`: how many priority-alert product photos to send. Default is 1 to avoid clutter.
+- `quiet_hours`: optional notification quiet window. Grails can still override it.
+- `schedule.interval_minutes`: default is 60.
 - `schedule.active_hours`: default is 06:00 to 00:00 Asia/Kolkata.
 - `stock_digest_interval_minutes`: default is 240, so one digest every 4 hours.
+
+Optional collector memory:
+
+```powershell
+copy collection.example.json collection.json
+```
+
+Edit `collection.json` to add castings you already own and wishlist priorities. Owned matches are filtered before alerts/digests. Wishlist matches can raise urgency without weakening existing collector rules.
 
 You can also keep secrets out of `config.json` by setting:
 
