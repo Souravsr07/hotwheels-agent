@@ -6,6 +6,7 @@ import re
 import unicodedata
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
 
 from playwright.async_api import TimeoutError as PlaywrightTimeout
 from playwright.async_api import async_playwright
@@ -92,7 +93,10 @@ async def _run_scraper(location: dict, timeout: int, scraper_cfg: dict) -> Optio
             )
 
             context = await browser.new_context(
-                geolocation={"latitude": location["lat"], "longitude": location["lng"]},
+                geolocation={
+                    "latitude": _location_lat(location),
+                    "longitude": _location_lng(location),
+                },
                 permissions=["geolocation"],
                 user_agent=random.choice(USER_AGENTS),
                 viewport={"width": 1366, "height": 768},
@@ -101,15 +105,21 @@ async def _run_scraper(location: dict, timeout: int, scraper_cfg: dict) -> Optio
                 extra_http_headers={
                     "Accept-Language": "en-IN,en;q=0.9",
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                    "lat": str(location["lat"]),
-                    "lon": str(location["lng"]),
+                    "lat": str(_location_lat(location)),
+                    "lon": str(_location_lng(location)),
                 },
             )
             await _seed_location_cookies(context, location)
             await context.add_init_script(
-                """
-                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-                Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+                f"""
+                Object.defineProperty(navigator, 'webdriver', {{ get: () => undefined }});
+                Object.defineProperty(navigator, 'plugins', {{ get: () => [1, 2, 3] }});
+                (() => {{
+                    const locationState = {json.dumps(_location_state(location))};
+                    try {{
+                        window.localStorage.setItem('location', JSON.stringify(locationState));
+                    }} catch (error) {{}}
+                }})();
                 """
             )
 
@@ -199,22 +209,24 @@ async def _trigger_more_results(page, scraper_cfg: dict) -> None:
 
 
 async def _seed_location_cookies(context, location: dict) -> None:
+    lat = str(_location_lat(location))
+    lng = str(_location_lng(location))
     cookies = [
         {
             "name": "gr_1_lat",
-            "value": str(location["lat"]),
+            "value": lat,
             "domain": "blinkit.com",
             "path": "/",
         },
         {
             "name": "gr_1_lon",
-            "value": str(location["lng"]),
+            "value": lng,
             "domain": "blinkit.com",
             "path": "/",
         },
         {
             "name": "gr_1_landmark",
-            "value": location.get("landmark", "undefined"),
+            "value": quote(str(location.get("landmark", "undefined")), safe=""),
             "domain": "blinkit.com",
             "path": "/",
         },
@@ -229,6 +241,30 @@ async def _seed_location_cookies(context, location: dict) -> None:
             }
         )
     await context.add_cookies(cookies)
+
+
+def _location_lat(location: dict) -> float:
+    return float(location.get("resolved_lat", location["lat"]))
+
+
+def _location_lng(location: dict) -> float:
+    return float(location.get("resolved_lng", location["lng"]))
+
+
+def _location_state(location: dict) -> dict:
+    return {
+        "coords": {
+            "isDefault": False,
+            "lat": _location_lat(location),
+            "lon": _location_lng(location),
+            "locality": location.get("city", "Pune"),
+            "id": int(location.get("locality", 787)),
+            "isTopCity": False,
+            "cityName": location.get("city", "Pune"),
+            "landmark": location.get("landmark", ""),
+            "addressId": None,
+        }
+    }
 
 
 async def _scrape_dom(page, location: dict) -> list[dict]:

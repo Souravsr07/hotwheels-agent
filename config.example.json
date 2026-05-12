@@ -3,32 +3,62 @@
     {
       "name": "Kharadi",
       "lat": 18.5512,
-      "lng": 73.9442
+      "lng": 73.9442,
+      "resolved_lat": 18.5511415,
+      "resolved_lng": 73.9446272,
+      "locality": 787,
+      "city": "Pune",
+      "landmark": "HW2V+FV2, Rakshak Nagar, Kharadi, Pune, Maharashtra 411014, India"
     },
     {
       "name": "Keshav Nagar",
       "lat": 18.5461,
-      "lng": 73.9323
+      "lng": 73.9323,
+      "resolved_lat": 18.5461802,
+      "resolved_lng": 73.9324689,
+      "locality": 787,
+      "city": "Pune",
+      "landmark": "CLUB HOUSE, Tukaram Nagar, Kharadi, Pune, Maharashtra 411014, India"
     },
     {
       "name": "Viman Nagar",
       "lat": 18.5679,
-      "lng": 73.9143
+      "lng": 73.9143,
+      "resolved_lat": 18.5677702,
+      "resolved_lng": 73.9141273,
+      "locality": 787,
+      "city": "Pune",
+      "landmark": "Shop No 6, Roshma Residency, Plot No 106, Viman Nagar Rd, Konark Nagar, Clover Park, Viman Nagar, Pune, Maharashtra 411014, India"
     },
     {
       "name": "Magarpatta",
       "lat": 18.5167,
-      "lng": 73.9302
+      "lng": 73.9302,
+      "resolved_lat": 18.5164946,
+      "resolved_lng": 73.9300463,
+      "locality": 787,
+      "city": "Pune",
+      "landmark": "GW8H+HXX, Magarpatta, Hadapsar, Pune, Maharashtra 411013, India"
     },
     {
       "name": "Baner",
       "lat": 18.559,
-      "lng": 73.7868
+      "lng": 73.7868,
+      "resolved_lat": 18.558981,
+      "resolved_lng": 73.786745,
+      "locality": 787,
+      "city": "Pune",
+      "landmark": "102, Club Rd, Baner Gaon, Baner, Pune, Maharashtra 411069, India"
     },
     {
       "name": "Koregaon Park",
       "lat": 18.5363,
-      "lng": 73.8935
+      "lng": 73.8935,
+      "resolved_lat": 18.5366377,
+      "resolved_lng": 73.89322299999999,
+      "locality": 787,
+      "city": "Pune",
+      "landmark": "73, Lane Number 3, Koregaon Park, Pune, Maharashtra 411001, India"
     }
   ],
   "desired_castings": [

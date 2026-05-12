@@ -61,15 +61,6 @@ jobs:
       - name: Prepare config
         run: |
           cp config.example.json config.json
-          python - <<'PY'
-          import json
-          from pathlib import Path
-
-          path = Path("config.json")
-          config = json.loads(path.read_text())
-          config.setdefault("scraper", {})["headless"] = False
-          path.write_text(json.dumps(config, indent=2) + "\n")
-          PY
           test -f state.json || printf '{"alerts":{},"last_stock_digest_at":0}\n' > state.json
 
       - name: Run scheduled collector check
