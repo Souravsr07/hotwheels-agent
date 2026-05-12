@@ -204,12 +204,17 @@ def _within_active_hours(config: dict, now: datetime | None = None) -> bool:
     current_minutes = now.hour * 60 + now.minute
     start = _parse_hhmm(active_hours.get("start", "06:00"))
     end = _parse_hhmm(active_hours.get("end", "00:00"))
+    include_end_minute = bool(active_hours.get("include_end_minute", True))
     if end == 0 and start != 0:
         end = 24 * 60
 
     if start < end:
+        if include_end_minute:
+            return start <= current_minutes <= end
         return start <= current_minutes < end
     if start > end:
+        if include_end_minute:
+            return current_minutes >= start or current_minutes <= end
         return current_minutes >= start or current_minutes < end
     return True
 

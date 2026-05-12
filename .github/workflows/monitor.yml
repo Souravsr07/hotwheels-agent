@@ -2,8 +2,8 @@ name: Hot Wheels Blinkit Monitor
 
 on:
   schedule:
-    # 08:00-00:00 Asia/Kolkata, hourly. GitHub cron is UTC.
-    - cron: "30 2-18 * * *"
+    # 06:00-02:00 Asia/Kolkata, hourly. GitHub cron is UTC.
+    - cron: "30 0-20 * * *"
   workflow_dispatch:
     inputs:
       force_digest:

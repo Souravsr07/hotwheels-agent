@@ -278,11 +278,6 @@ DEFAULT_COLLECTOR_RULES = {
         "initial d",
         "need for speed",
         "delorean",
-        "james bond",
-        "top gun",
-        "batman",
-        "batmobile",
-        "back to the future",
     ],
     "maybe_keywords": [
         "batmobile",

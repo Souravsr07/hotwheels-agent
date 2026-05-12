@@ -33,7 +33,7 @@ Edit `config.json`. For GitHub later, keep secrets out of committed files: `conf
 - `telegram_alerts`: keeps Telegram compact with one image preview, one action button, and short top-pick/watchlist sections.
 - `quiet_hours`: optional notification quiet window. Grails can still override it.
 - `schedule.interval_minutes`: default is 60.
-- `schedule.active_hours`: default is 06:00 to 00:00 Asia/Kolkata.
+- `schedule.active_hours`: default is 06:00 to 02:00 Asia/Kolkata, including the 02:00 run.
 - `stock_digest_interval_minutes`: default is 240, so one digest every 4 hours.
 
 Optional collector memory:
@@ -96,7 +96,7 @@ GitHub Actions option:
 
 - Push this repo to GitHub.
 - Add repository secrets: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, and optionally `ANTHROPIC_API_KEY`.
-- The included workflow runs hourly from 08:00 to 00:00 Asia/Kolkata, forces a Telegram digest each run, and caches `state.json` so alert cooldowns survive between runs.
+- The included workflow runs hourly from 06:00 to 02:00 Asia/Kolkata, forces a Telegram digest each run, and caches `state.json` so alert cooldowns survive between runs.
 
 Useful options:
 

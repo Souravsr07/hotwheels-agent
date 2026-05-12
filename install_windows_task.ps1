@@ -3,13 +3,27 @@ $ErrorActionPreference = "Stop"
 $projectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $taskName = "HotWheelsBlinkitAgent"
 $launcher = Join-Path $projectDir "run_hourly.bat"
+$configPath = Join-Path $projectDir "config.json"
+$startTime = "06:00"
 
 if (-not (Test-Path $launcher)) {
     throw "Could not find $launcher"
 }
 
+if (Test-Path $configPath) {
+    try {
+        $config = Get-Content -Raw -Path $configPath | ConvertFrom-Json
+        if ($config.schedule.active_hours.start) {
+            $startTime = $config.schedule.active_hours.start
+        }
+    }
+    catch {
+        Write-Warning "Could not read config schedule; using $startTime task start."
+    }
+}
+
 $taskCommand = "cmd.exe /c cd /d `"$projectDir`" && `"$launcher`""
-schtasks /Create /F /TN $taskName /SC HOURLY /MO 1 /ST 08:00 /TR $taskCommand /RL LIMITED | Out-Null
+schtasks /Create /F /TN $taskName /SC HOURLY /MO 1 /ST $startTime /TR $taskCommand /RL LIMITED | Out-Null
 
 if ($LASTEXITCODE -ne 0) {
     $startupDir = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Startup"
@@ -34,5 +48,5 @@ $settings = New-ScheduledTaskSettingsSet `
 Set-ScheduledTask -TaskName $taskName -Settings $settings | Out-Null
 
 Write-Host "Installed scheduled task: $taskName"
-Write-Host "It will run $launcher once every hour."
+Write-Host "It will run $launcher once every hour starting at $startTime."
 Write-Host "The Python config still controls active hours and custom notification rules."
