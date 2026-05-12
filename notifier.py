@@ -209,6 +209,13 @@ async def send_heartbeat(telegram_cfg: dict, run_count: int, locations: list) ->
     await _send_telegram(telegram_cfg, msg)
 
 
+async def send_operational_alert(telegram_cfg: dict, title: str, details: list[str]) -> None:
+    """Send an operational alert when the monitor could not actually inspect stock."""
+    lines = [f"<b>{html.escape(title)}</b>", ""]
+    lines.extend(html.escape(detail) for detail in details)
+    await _send_telegram(telegram_cfg, "\n".join(lines))
+
+
 async def _send_telegram(
     telegram_cfg: dict,
     text: str,

@@ -36,9 +36,10 @@ from notifier import (
     send_curated_priority_alert,
     send_curated_stock_digest,
     send_heartbeat,
+    send_operational_alert,
     send_startup_message,
 )
-from scraper import scrape_location
+from scraper import BlinkitAccessBlocked, scrape_location
 
 STATE_PATH = BASE_DIR / "state.json"
 LOCK_PATH = BASE_DIR / "run.lock"
@@ -187,6 +188,16 @@ def _mark_stock_digest_sent(state: dict) -> None:
     state["last_stock_digest_at"] = time.time()
 
 
+def _operational_alert_due(config: dict, state: dict) -> bool:
+    minutes = int(config.get("operational_alert_cooldown_minutes", 360))
+    last_alert = float(state.get("last_operational_alert_at", 0))
+    return (time.time() - last_alert) >= minutes * 60
+
+
+def _mark_operational_alert_sent(state: dict) -> None:
+    state["last_operational_alert_at"] = time.time()
+
+
 def _products_in_report(report: dict, section: str = "priority_groups") -> list[dict]:
     products = []
     for group in report.get(section, []):
@@ -297,6 +308,7 @@ async def check_all_locations(
     logger.info("Collector cycle started at %s", started_at)
 
     all_products: list[dict] = []
+    blocked_locations: list[dict] = []
 
     for index, location in enumerate(locations):
         logger.info("Checking %s...", location["name"])
@@ -317,11 +329,40 @@ async def check_all_locations(
                 len(classified),
                 len(picks),
             )
+        except BlinkitAccessBlocked as exc:
+            logger.warning("[%s] Blinkit access blocked: %s", location["name"], exc)
+            blocked_locations.append({"name": location["name"], "reason": str(exc)})
         except Exception as exc:
             logger.error("[%s] Unexpected error: %s", location["name"], exc, exc_info=True)
 
         if index < len(locations) - 1:
             await asyncio.sleep(delay)
+
+    if blocked_locations and not all_products:
+        blocked_names = ", ".join(item["name"] for item in blocked_locations)
+        reason = blocked_locations[0].get("reason", "Blinkit access denied")
+        logger.error("Blinkit blocked this runner for all checked locations: %s", blocked_names)
+        if _operational_alert_due(config, state):
+            await send_operational_alert(
+                telegram_cfg,
+                "Hot Wheels Monitor Blocked",
+                [
+                    "GitHub Actions reached Blinkit, but Blinkit/Cloudflare blocked the runner.",
+                    f"Locations affected: {blocked_names}",
+                    f"Signal: {reason}",
+                    "This is not an empty-stock result. Local/manual runs from your PC still work.",
+                ],
+            )
+            _mark_operational_alert_sent(state)
+        _save_state(state)
+        logger.info("Collector cycle finished with blocked runner\n")
+        return {
+            "checked": False,
+            "blocked": True,
+            "blocked_locations": len(blocked_locations),
+            "priority_count": 0,
+            "product_count": 0,
+        }
 
     priority = priority_products(all_products, config)
     new_priority = [

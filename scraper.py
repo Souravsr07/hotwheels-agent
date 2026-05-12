@@ -14,6 +14,10 @@ from playwright.async_api import async_playwright
 logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent
 
+
+class BlinkitAccessBlocked(Exception):
+    """Raised when Blinkit/Cloudflare blocks the current runner before search loads."""
+
 PRODUCT_SELECTORS = [
     "[data-test-id='plp-product']",
     ".product__info",
@@ -156,6 +160,12 @@ async def _run_scraper(location: dict, timeout: int, scraper_cfg: dict) -> Optio
                 logger.warning("[%s] Page load timeout; trying to parse anyway", location["name"])
 
             await asyncio.sleep(random.uniform(4, 6))
+            block_reason = await _blocked_page_reason(page)
+            if block_reason:
+                if scraper_cfg.get("save_debug_artifacts", True):
+                    await _save_debug_artifacts(page, location)
+                raise BlinkitAccessBlocked(block_reason)
+
             await _dismiss_popups(page)
             await _trigger_more_results(page, scraper_cfg)
             await asyncio.sleep(float(scraper_cfg.get("post_load_wait_seconds", 2)))
@@ -206,6 +216,36 @@ async def _trigger_more_results(page, scraper_cfg: dict) -> None:
             await page.wait_for_timeout(pause_ms)
         except Exception:
             return
+
+
+async def _blocked_page_reason(page) -> str:
+    try:
+        text = (await page.locator("body").inner_text(timeout=2000)).lower()
+    except Exception:
+        return ""
+
+    blocked_markers = [
+        "access denied",
+        "sorry, you have been blocked",
+        "cloudflare ray id",
+        "the page you are trying to access has blocked you",
+    ]
+    if not any(marker in text for marker in blocked_markers):
+        return ""
+
+    try:
+        body_text = await page.locator("body").inner_text(timeout=2000)
+    except Exception:
+        return "Blinkit access denied"
+
+    ray_match = re.search(r"Ray ID\s*-\s*([A-Za-z0-9]+)", body_text)
+    ip_match = re.search(r"Your IP\s*-\s*([0-9A-Fa-f:.]+)", body_text)
+    pieces = ["Blinkit access denied"]
+    if ray_match:
+        pieces.append(f"Ray ID {ray_match.group(1)}")
+    if ip_match:
+        pieces.append(f"IP {ip_match.group(1)}")
+    return " | ".join(pieces)
 
 
 async def _seed_location_cookies(context, location: dict) -> None:

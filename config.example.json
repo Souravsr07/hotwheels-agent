@@ -277,6 +277,7 @@
   },
   "alert_cooldown_minutes": 60,
   "priority_alert_cooldown_minutes": 720,
+  "operational_alert_cooldown_minutes": 360,
   "stock_digest_interval_minutes": 60,
   "quiet_hours": {
     "enabled": false,
