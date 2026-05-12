@@ -1,6 +1,9 @@
 name: Hot Wheels Blinkit Monitor
 
 on:
+  push:
+    branches:
+      - main
   schedule:
     # 06:00-02:00 Asia/Kolkata, hourly. GitHub cron is UTC.
     - cron: "30 0-20 * * *"
@@ -21,6 +24,7 @@ jobs:
     timeout-minutes: 20
 
     env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -41,30 +45,55 @@ jobs:
           python -m pip install -r requirements.txt
           python -m playwright install --with-deps chromium
 
+      - name: Validate Telegram secrets
+        run: |
+          test -n "$TELEGRAM_BOT_TOKEN" || (echo "Missing TELEGRAM_BOT_TOKEN secret" && exit 1)
+          test -n "$TELEGRAM_CHAT_ID" || (echo "Missing TELEGRAM_CHAT_ID secret" && exit 1)
+
       - name: Restore alert state
         uses: actions/cache/restore@v4
         with:
           path: state.json
-          key: hotwheels-state-${{ github.run_id }}
+          key: hotwheels-state-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             hotwheels-state-
 
       - name: Prepare config
         run: |
           cp config.example.json config.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("config.json")
+          config = json.loads(path.read_text())
+          config.setdefault("scraper", {})["headless"] = False
+          path.write_text(json.dumps(config, indent=2) + "\n")
+          PY
           test -f state.json || printf '{"alerts":{},"last_stock_digest_at":0}\n' > state.json
 
       - name: Run scheduled collector check
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.force_digest != 'true' }}
-        run: python main.py --once --force-digest --ignore-active-hours
+        run: xvfb-run -a python main.py --once --force-digest --ignore-active-hours
 
       - name: Run manual collector check with digest
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.force_digest == 'true' }}
-        run: python main.py --once --force-digest --ignore-active-hours
+        run: xvfb-run -a python main.py --once --force-digest --ignore-active-hours
+
+      - name: Upload debug artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: blinkit-debug-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            agent.log
+            api_hits.log
+            debug/
+          if-no-files-found: ignore
 
       - name: Save alert state
         if: always()
         uses: actions/cache/save@v4
         with:
           path: state.json
-          key: hotwheels-state-${{ github.run_id }}
+          key: hotwheels-state-${{ github.run_id }}-${{ github.run_attempt }}
